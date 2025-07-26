@@ -1,35 +1,58 @@
 import requests
 from bs4 import BeautifulSoup
-import re
 import tiktoken
+import re
 import json
 import os
+import time
 
-# 1. Set MedlinePlus article URL
-url = "https://medlineplus.gov/headache.html"
+# 1. Get all disease article links from the main index page
+base_url = "https://medlineplus.gov"
+index_url = f"{base_url}/encyclopedia.html"
+res = requests.get(index_url)
+soup = BeautifulSoup(res.text, "html.parser")
 
-# 2. Download page content
-response = requests.get(url)
-html = response.text
+# Find all disease links
+disease_links = [
+    base_url + a['href']
+    for a in soup.select("ul.alpha-links a[href]")
+    if a['href'].startswith("/ency/article")
+]
 
-# 3. Extract and clean text
-soup = BeautifulSoup(html, "html.parser")
-main = soup.find("main") or soup  # fallback to whole page
+print(f"✅ Found {len(disease_links)} disease pages.")
 
-raw_text = main.get_text(separator=" ")
-cleaned = re.sub(r'\s+', ' ', raw_text).strip()
+# 2. Prepare tokenizer
+enc = tiktoken.get_encoding("cl100k_base")
 
-# 4. Tokenize using tiktoken
-enc = tiktoken.get_encoding("cl100k_base")  # or "gpt2" for GPT-2
-tokens = enc.encode(cleaned)
+all_text = ""
+all_tokens = []
 
-# 5. Save tokenized output
+# 3. Process each disease page
+for i, url in enumerate(disease_links[:50]):  # Limit to first 50 for speed (remove limit for full)
+    try:
+        r = requests.get(url)
+        s = BeautifulSoup(r.text, "html.parser")
+        article = s.find("main") or s
+        raw = article.get_text(" ", strip=True)
+        clean = re.sub(r'\s+', ' ', raw)
+
+        tokens = enc.encode(clean)
+        all_text += f"\n\n--- {url} ---\n\n" + clean
+        all_tokens += tokens
+
+        print(f"[{i+1}/{len(disease_links)}] ✅ {url} ({len(tokens)} tokens)")
+        time.sleep(0.5)  # Be polite to the server
+
+    except Exception as e:
+        print(f"[{i+1}] ❌ Failed: {url} — {e}")
+
+# 4. Save output
 os.makedirs("output", exist_ok=True)
-with open("output/tokenized.json", "w", encoding="utf-8") as f:
-    json.dump(tokens, f)
 
-# Optional: also save plain cleaned text
 with open("output/cleaned_text.txt", "w", encoding="utf-8") as f:
-    f.write(cleaned)
+    f.write(all_text)
 
-print(f"✅ Done! {len(tokens)} tokens saved to output/tokenized.json")
+with open("output/tokenized.json", "w", encoding="utf-8") as f:
+    json.dump(all_tokens, f)
+
+print(f"\n✅ Finished: {len(all_tokens)} total tokens from {len(disease_links)} pages.")
