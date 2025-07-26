@@ -1,0 +1,35 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import tiktoken
+import json
+import os
+
+# 1. Set MedlinePlus article URL
+url = "https://medlineplus.gov/headache.html"
+
+# 2. Download page content
+response = requests.get(url)
+html = response.text
+
+# 3. Extract and clean text
+soup = BeautifulSoup(html, "html.parser")
+main = soup.find("main") or soup  # fallback to whole page
+
+raw_text = main.get_text(separator=" ")
+cleaned = re.sub(r'\s+', ' ', raw_text).strip()
+
+# 4. Tokenize using tiktoken
+enc = tiktoken.get_encoding("cl100k_base")  # or "gpt2" for GPT-2
+tokens = enc.encode(cleaned)
+
+# 5. Save tokenized output
+os.makedirs("output", exist_ok=True)
+with open("output/tokenized.json", "w", encoding="utf-8") as f:
+    json.dump(tokens, f)
+
+# Optional: also save plain cleaned text
+with open("output/cleaned_text.txt", "w", encoding="utf-8") as f:
+    f.write(cleaned)
+
+print(f"✅ Done! {len(tokens)} tokens saved to output/tokenized.json")
